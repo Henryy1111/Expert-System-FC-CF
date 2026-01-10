@@ -1,4 +1,3 @@
-// === Dashboard.jsx UPDATED PROFESSIONAL THEME ===
 import React, { useEffect, useMemo, useState } from "react";
 import AdminLayout from "../layouts/AdminLayout";
 import { useNavigate } from "react-router-dom";
@@ -7,27 +6,91 @@ import {
   Activity,
   ClipboardList,
   Database,
-  BarChart3,
   LogOut,
-  Calendar,
-  Clock,
   TrendingUp,
   ArrowUpRight,
+  ShieldCheck,
+  Zap,
+  Network,
+  FileSearch,
+  Calendar,
+  PieChart,
+  BarChart3,
+  Info,
 } from "lucide-react";
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Cell,
 } from "recharts";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../lib/supabaseClient";
 
 const formatDate = (d) =>
   new Date(d).toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
+
+const colorStyles = {
+  indigo: {
+    text: "text-indigo-700 dark:text-indigo-400",
+    bg: "bg-indigo-500/20",
+    border: "border-indigo-500/30",
+    neon: "shadow-[0_0_20px_rgba(99,102,241,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(99,102,241,0.4)]",
+  },
+  blue: {
+    text: "text-blue-600 dark:text-blue-400",
+    bg: "bg-blue-500/20",
+    border: "border-blue-500/30",
+    neon: "shadow-[0_0_20px_rgba(59,130,246,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(59,130,246,0.4)]",
+  },
+  emerald: {
+    text: "text-emerald-600 dark:text-emerald-400",
+    bg: "bg-emerald-500/20",
+    border: "border-emerald-500/30",
+    neon: "shadow-[0_0_20px_rgba(16,185,129,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(16,185,129,0.4)]",
+  },
+  violet: {
+    text: "text-violet-600 dark:text-violet-400",
+    bg: "bg-violet-500/20",
+    border: "border-violet-500/30",
+    neon: "shadow-[0_0_20px_rgba(139,92,246,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(139,92,246,0.4)]",
+  },
+  pink: {
+    text: "text-pink-600 dark:text-pink-400",
+    bg: "bg-pink-500/20",
+    border: "border-pink-500/30",
+    neon: "shadow-[0_0_20px_rgba(236,72,153,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(236,72,153,0.4)]",
+  },
+  amber: {
+    text: "text-amber-600 dark:text-amber-400",
+    bg: "bg-amber-500/20",
+    border: "border-amber-500/30",
+    neon: "shadow-[0_0_20px_rgba(245,158,11,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(245,158,11,0.4)]",
+  },
+  rose: {
+    text: "text-rose-600 dark:text-rose-400",
+    bg: "bg-rose-500/20",
+    border: "border-rose-500/30",
+    neon: "shadow-[0_0_20px_rgba(244,63,94,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(244,63,94,0.4)]",
+  },
+  sky: {
+    text: "text-sky-600 dark:text-sky-400",
+    bg: "bg-sky-500/20",
+    border: "border-sky-500/30",
+    neon: "shadow-[0_0_20px_rgba(14,165,233,0.2)]",
+    hover: "group-hover:shadow-[0_0_30px_rgba(14,165,233,0.4)]",
+  },
+};
 
 export default function Dashboard({ role }) {
   const navigate = useNavigate();
@@ -42,7 +105,6 @@ export default function Dashboard({ role }) {
     pengguna: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [daysRange, setDaysRange] = useState(7);
   const [time, setTime] = useState(
@@ -50,7 +112,6 @@ export default function Dashboard({ role }) {
   );
   const [showLogout, setShowLogout] = useState(false);
 
-  // Ambil user dari localStorage dengan proteksi
   const user = useMemo(() => {
     try {
       const storedUser = localStorage.getItem("user");
@@ -63,9 +124,10 @@ export default function Dashboard({ role }) {
   const isAdmin = user?.role === "admin" || role === "admin";
 
   useEffect(() => {
-    const t = setInterval(() => {
-      setTime(new Date().toLocaleTimeString("id-ID", { hour12: false }));
-    }, 1000);
+    const t = setInterval(
+      () => setTime(new Date().toLocaleTimeString("id-ID", { hour12: false })),
+      1000
+    );
     return () => clearInterval(t);
   }, []);
 
@@ -82,82 +144,50 @@ export default function Dashboard({ role }) {
         "detail_konsultasi",
         ...(isAdmin ? ["pengguna"] : []),
       ];
-
       const newCounts = {};
-      // Menggunakan Promise.all untuk fetch lebih cepat
       await Promise.all(
         tables.map(async (t) => {
-          const { count, error } = await supabase
+          const { count } = await supabase
             .from(t)
             .select("*", { count: "exact", head: true });
-          newCounts[t] = error ? 0 : count ?? 0;
+          newCounts[t] = count ?? 0;
         })
       );
-
       setCounts((prev) => ({ ...prev, ...newCounts }));
-      setError(null);
-    } catch (err) {
-      setError("Gagal mengambil statistik");
     } finally {
       setLoading(false);
     }
   };
 
   const fetchChart = async (days = 7) => {
-    try {
-      const today = new Date();
-      const start = new Date();
-      start.setDate(today.getDate() - (days - 1));
-
-      const { data, error } = await supabase
-        .from("konsultasi")
-        .select("tanggal_konsultasi")
-        .gte("tanggal_konsultasi", start.toISOString().slice(0, 10));
-
-      if (error) return setChartData([]);
-
-      const countsByDate = {};
-      for (let i = 0; i < days; i++) {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
-        countsByDate[d.toISOString().slice(0, 10)] = 0;
-      }
-
-      data?.forEach((row) => {
-        const key = row.tanggal_konsultasi; // Supabase biasanya mengembalikan YYYY-MM-DD
-        if (countsByDate[key] !== undefined) countsByDate[key] += 1;
-      });
-
-      setChartData(
-        Object.keys(countsByDate).map((k) => ({
-          date: formatDate(k),
-          value: countsByDate[k],
-        }))
-      );
-    } catch (err) {
-      setChartData([]);
+    const today = new Date();
+    const start = new Date();
+    start.setDate(today.getDate() - (days - 1));
+    const { data } = await supabase
+      .from("konsultasi")
+      .select("tanggal_konsultasi")
+      .gte("tanggal_konsultasi", start.toISOString().slice(0, 10));
+    const countsByDate = {};
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      countsByDate[d.toISOString().slice(0, 10)] = 0;
     }
+    data?.forEach((row) => {
+      if (countsByDate[row.tanggal_konsultasi] !== undefined)
+        countsByDate[row.tanggal_konsultasi] += 1;
+    });
+    setChartData(
+      Object.keys(countsByDate).map((k) => ({
+        date: formatDate(k),
+        value: countsByDate[k],
+      }))
+    );
   };
 
   useEffect(() => {
     fetchCounts();
     fetchChart(daysRange);
-
-    const channel = supabase
-      .channel("dashboard-refresh")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "konsultasi" },
-        () => {
-          fetchCounts();
-          fetchChart(daysRange);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [daysRange, isAdmin]);
 
   const cards = [
@@ -165,312 +195,380 @@ export default function Dashboard({ role }) {
       ? [
           {
             id: "pengguna",
-            title: "Pengguna",
+            title: "Data Pengguna",
             value: counts.pengguna,
             icon: Users,
-            color: "from-cyan-500 to-blue-500",
+            color: "indigo",
             link: "/pengguna",
           },
         ]
       : []),
     {
       id: "penyakit",
-      title: "Penyakit",
+      title: "Data Penyakit",
       value: counts.penyakit,
       icon: Database,
-      color: "from-amber-400 to-orange-500",
+      color: "blue",
       link: "/penyakit",
     },
     {
       id: "gejala",
-      title: "Gejala",
+      title: "Data Gejala",
       value: counts.gejala,
       icon: ClipboardList,
-      color: "from-emerald-400 to-teal-600",
+      color: "emerald",
       link: "/gejala",
     },
     {
       id: "rule",
-      title: "Rule",
+      title: "Data Rule",
       value: counts.rule,
       icon: Activity,
-      color: "from-violet-500 to-purple-700",
+      color: "violet",
       link: "/rule",
     },
     {
       id: "detail_rule",
-      title: "Detail Rule",
+      title: "Data Detail Rule",
       value: counts.detail_rule,
-      icon: BarChart3,
-      color: "from-pink-500 to-rose-600",
+      icon: Network,
+      color: "pink",
       link: "/detailrule",
     },
     {
       id: "bobotcf",
-      title: "Bobot CF",
+      title: "Data Bobot CF",
       value: counts.bobotcf,
       icon: TrendingUp,
-      color: "from-lime-400 to-green-600",
+      color: "amber",
       link: "/bobotcf",
     },
     {
       id: "konsultasi",
-      title: "Konsultasi",
+      title: "Data Konsultasi",
       value: counts.konsultasi,
       icon: Calendar,
-      color: "from-orange-400 to-red-500",
+      color: "rose",
       link: "/konsultasi",
     },
     {
       id: "detail_konsultasi",
-      title: "Detail Konsultasi",
+      title: "Data Detail Konsultasi",
       value: counts.detail_konsultasi,
-      icon: ClipboardList,
-      color: "from-sky-400 to-indigo-500",
+      icon: FileSearch,
+      color: "sky",
       link: "/detailkonsultasi",
     },
   ];
 
   return (
-    <AdminLayout role={isAdmin ? "admin" : "user"}>
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-        {/* HEADER SECTION */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-black tracking-tight dark:text-white text-slate-900">
-              Overview Dashboard
-            </h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium">
-              Selamat datang kembali,{" "}
-              <span className="text-blue-600 dark:text-blue-400">
-                {user?.nama_pengguna || "Admin"}
+    <AdminLayout>
+      <div className="max-w-[1600px] mx-auto space-y-8 p-4 md:p-8">
+        {/* --- COMPACT HEADER --- */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+          >
+            <h1 className="text-4xl md:text-6xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+              Dashboard{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-500">
+                Sistem
               </span>
+            </h1>
+            <p className="text-sm text-slate-500 font-bold mt-2 flex items-center gap-2 uppercase tracking-widest">
+              <ShieldCheck size={16} className="text-emerald-500" /> Authorized:{" "}
+              {user?.nama_pengguna || "Administrator"}
             </p>
-          </div>
+          </motion.div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-inner">
-              <Clock className="text-blue-500" size={18} />
-              <span className="text-sm font-bold font-mono tracking-wider text-slate-700 dark:text-slate-300">
+          <motion.div className="flex items-center gap-4 w-full sm:w-auto">
+            <div className="flex-1 sm:flex-none bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hidden md:block">
+              <span className="text-[10px] font-black text-indigo-600 block leading-none mb-1 uppercase tracking-widest">
+                Global Server Time
+              </span>
+              <span className="text-xl font-mono font-black dark:text-white leading-none">
                 {time}
               </span>
             </div>
             <button
-              type="button"
               onClick={() => setShowLogout(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-2xl font-bold text-sm hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all border border-rose-200/50 dark:border-rose-900/50"
+              className="p-4 bg-rose-500 text-white rounded-2xl hover:rotate-6 hover:scale-110 transition-all shadow-xl shadow-rose-500/30"
             >
-              <LogOut size={16} /> Logout
+              <LogOut size={24} />
             </button>
-          </div>
+          </motion.div>
         </div>
 
-        {/* STATS CARDS GRID */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {loading
-            ? Array(8)
-                .fill(0)
-                .map((_, i) => (
+        {/* --- NEON COMPACT GRID --- */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          {cards.map((card, idx) => {
+            const style = colorStyles[card.color];
+            return (
+              <motion.div
+                key={card.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                onClick={() => navigate(card.link)}
+                className={`group relative cursor-pointer overflow-hidden rounded-[2rem] p-6 border bg-white dark:bg-slate-900 transition-all duration-500 ${style.border} ${style.neon} ${style.hover} hover:-translate-y-2`}
+              >
+                <div className="relative z-10 flex flex-col gap-6">
                   <div
-                    key={i}
-                    className="h-32 rounded-[2rem] bg-slate-200 dark:bg-slate-800 animate-pulse"
-                  />
-                ))
-            : cards.map((card) => (
-                <button
-                  key={card.id}
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(card.link);
-                  }}
-                  className="group relative overflow-hidden rounded-[2rem] p-6 
-                             bg-slate-200/60 dark:bg-slate-800
-                             border-b-4 border-white dark:border-slate-800 
-                             shadow-sm hover:shadow-xl
-                             hover:-translate-y-1 transition-all duration-500 text-left"
-                >
-                  <div className="relative z-10 flex justify-between items-start">
-                    <div className="space-y-3">
-                      <p className="text-[11px] font-black text-slate-400 dark:text-slate-200 uppercase tracking-[0.2em]">
-                        {card.title}
-                      </p>
-                      <h3 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">
-                        {card.value}
-                      </h3>
-                    </div>
-                    <div
-                      className={`p-4 rounded-2xl bg-gradient-to-br ${card.color} text-white shadow-lg transform group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300`}
-                    >
-                      <card.icon size={22} strokeWidth={2.5} />
-                    </div>
+                    className={`w-12 h-12 flex items-center justify-center rounded-2xl ${style.bg} ${style.text} ring-1 ring-current/20 group-hover:scale-110 transition-transform`}
+                  >
+                    <card.icon size={26} strokeWidth={2.5} />
                   </div>
-
-                  <div className="mt-4 flex items-center text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-10px] group-hover:translate-x-0">
-                    Explore Data <ArrowUpRight size={14} className="ml-1" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-2">
+                      {card.title}
+                    </h4>
+                    <p className="text-3xl md:text-4xl font-black dark:text-white tracking-tighter">
+                      {loading ? "..." : card.value}
+                    </p>
                   </div>
-
-                  <div
-                    className={`absolute -right-6 -bottom-6 w-24 h-24 bg-gradient-to-br ${card.color} opacity-[0.05] blur-2xl group-hover:opacity-15 transition-opacity`}
-                  />
-                </button>
-              ))}
+                </div>
+                <div
+                  className={`absolute -right-8 -bottom-8 w-32 h-32 rounded-full blur-3xl opacity-10 transition-opacity group-hover:opacity-20 ${style.bg}`}
+                />
+              </motion.div>
+            );
+          })}
         </div>
 
-        {/* CHARTS & SUMMARY */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-slate-200/60 dark:bg-slate-800 border border-white dark:border-slate-800 rounded-[2.5rem] p-8 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        {/* --- ANALYTICS & PREMIUM SIDEBAR --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Main Chart */}
+          <motion.div className="lg:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[3rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 dark:shadow-none">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
               <div>
-                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  Trend Konsultasi
+                <h3 className="text-2xl font-black dark:text-white tracking-tight">
+                  Tabel Konsultasi
                 </h3>
-                <p className="text-sm text-slate-500 font-medium">
-                  Aktivitas diagnosa
+                <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">
+                  Hasil Konsultasi Diagnosis
                 </p>
               </div>
-              <select
-                value={daysRange}
-                onChange={(e) => setDaysRange(Number(e.target.value))}
-                className="bg-white dark:bg-slate-800 border-none rounded-xl px-4 py-2 text-sm font-bold shadow-sm outline-none"
-              >
-                <option value={7}>7 Hari</option>
-                <option value={14}>14 Hari</option>
-                <option value={30}>30 Hari</option>
-              </select>
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl">
+                {[7, 14, 30].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDaysRange(d)}
+                    className={`px-6 py-2 rounded-xl text-[10px] font-black transition-all ${
+                      daysRange === d
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 shadow-xl"
+                        : "text-slate-400 hover:text-slate-600"
+                    }`}
+                  >
+                    {d}Hari
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="h-[350px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
-                >
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="chartColor" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
-                    stroke="#E2E8F0"
-                    opacity={0.4}
+                    stroke="#94a3b8"
+                    opacity={0.1}
                   />
                   <XAxis
                     dataKey="date"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fontSize: 11, fontWeight: 700, fill: "#94A3B8" }}
+                    tick={{ fontSize: 11, fontWeight: 800, fill: "#64748b" }}
                     dy={10}
                   />
                   <YAxis
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fontSize: 11, fontWeight: 700, fill: "#94A3B8" }}
+                    tick={{ fontSize: 11, fontWeight: 800, fill: "#64748b" }}
                   />
                   <Tooltip
-                    cursor={{ fill: "rgba(59, 130, 246, 0.05)" }}
                     contentStyle={{
-                      borderRadius: "20px",
+                      borderRadius: "24px",
                       border: "none",
-                      boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
-                      fontWeight: "800",
+                      backgroundColor: "#1e293b",
+                      color: "#fff",
+                      boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)",
                     }}
+                    itemStyle={{ color: "#818cf8", fontWeight: "bold" }}
                   />
-                  <Bar dataKey="value" radius={[8, 8, 8, 8]} barSize={32}>
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          index === chartData.length - 1 ? "#3B82F6" : "#CBD5E1"
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#6366f1"
+                    strokeWidth={4}
+                    fill="url(#chartColor)"
+                    animationDuration={2000}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </motion.div>
 
-          {/* SUMMARY CARD */}
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 dark:from-blue-600 dark:to-indigo-700 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden">
-            <div className="relative z-10 h-full flex flex-col">
-              <div className="mb-6 p-4 bg-white/10 rounded-2xl w-fit backdrop-blur-xl border border-white/10">
-                <Activity size={24} className="text-blue-400 dark:text-white" />
-              </div>
-              <h3 className="text-2xl font-black mb-2">Ringkasan Sistem</h3>
-              <p className="text-slate-400 dark:text-blue-100 text-sm mb-8">
-                Data master saat ini.
-              </p>
+          {/* --- THE PREMIUM QUICK SUMMARY --- */}
+          <motion.div className="lg:col-span-4 flex flex-col gap-6">
+            <div className="flex-1 bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-700 rounded-[3rem] p-10 text-white relative overflow-hidden shadow-2xl shadow-indigo-500/40 group">
+              {/* Background Shapes */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 group-hover:bg-white/20 transition-all duration-700"></div>
 
-              <div className="space-y-5 flex-1">
-                {[
-                  { label: "Total Penyakit", val: counts.penyakit },
-                  { label: "Total Gejala", val: counts.gejala },
-                  { label: "Basis Aturan", val: counts.rule },
-                ].map((item, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between border-b border-white/5 pb-4"
-                  >
-                    <span className="text-xs font-black uppercase tracking-widest opacity-60">
-                      {item.label}
-                    </span>
-                    <span className="text-2xl font-black">{item.val}</span>
+              <div className="relative z-10 h-full flex flex-col">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl">
+                    <PieChart size={24} className="text-white" />
                   </div>
-                ))}
+                  <span className="text-[10px] font-black bg-emerald-400 text-emerald-900 px-3 py-1 rounded-full uppercase tracking-widest">
+                    Live Sync
+                  </span>
+                </div>
+
+                <h4 className="text-2xl font-black tracking-tight mb-2">
+                  Ringkasan Sistem
+                </h4>
+                <p className="text-indigo-100 text-sm font-medium mb-8 opacity-80 uppercase tracking-widest">
+                  Database Real-Time Overview
+                </p>
+
+                <div className="space-y-6 flex-1">
+                  {/* Item 1: Rules Ratio */}
+                  <div className="group/item cursor-default">
+                    <div className="flex justify-between items-end mb-2">
+                      <span className="text-xs font-black uppercase tracking-widest opacity-70 italic">
+                        Data Detail Rule
+                      </span>
+                      <span className="text-xl font-black">
+                        {(counts.rule + counts.detail_rule).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-white/20 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${
+                            (counts.rule /
+                              (counts.rule + counts.detail_rule || 1)) *
+                            100
+                          }%`,
+                        }}
+                        className="h-full bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)]"
+                      />
+                    </div>
+                    <div className="flex justify-between mt-2 text-[10px] font-bold opacity-60">
+                      <span>{counts.rule} Rules</span>
+                      <span>{counts.detail_rule} Details</span>
+                    </div>
+                  </div>
+
+                  {/* Item 2: Knowledge Base */}
+                  <div className="group/item cursor-default">
+                    <div className="flex justify-between items-end mb-2">
+                      <span className="text-xs font-black uppercase tracking-widest opacity-70 italic">
+                        Data Gejala
+                      </span>
+                      <span className="text-xl font-black">
+                        {(counts.penyakit + counts.gejala).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-white/20 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${
+                            (counts.penyakit /
+                              (counts.penyakit + counts.gejala || 1)) *
+                            100
+                          }%`,
+                        }}
+                        className="h-full bg-emerald-300 rounded-full shadow-[0_0_10px_rgba(110,231,183,0.5)]"
+                      />
+                    </div>
+                    <div className="flex justify-between mt-2 text-[10px] font-bold opacity-60">
+                      <span>{counts.penyakit} Penyakit</span>
+                      <span>{counts.gejala} Gejala</span>
+                    </div>
+                  </div>
+
+                  {/* Item 3: System Interactions */}
+                  <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:bg-white/20 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-amber-400 rounded-lg text-amber-900">
+                        <Zap size={18} fill="currentColor" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase opacity-60">
+                          Total Konsultasi
+                        </p>
+                        <p className="text-lg font-black leading-tight">
+                          {counts.konsultasi.toLocaleString()} Records
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => navigate("/konsultasi")}
+                  className="w-full mt-8 py-4 bg-white text-indigo-700 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:shadow-indigo-400/20 hover:-translate-y-1 active:scale-95 transition-all"
+                >
+                  Lihat Data
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => navigate("/konsultasi")}
-                className="mt-8 w-full py-4 bg-white text-slate-900 dark:text-blue-700 rounded-[1.5rem] font-black text-xs shadow-lg hover:scale-[1.02] transition-transform uppercase"
-              >
-                Lihat Laporan
-              </button>
             </div>
-          </div>
+          </motion.div>
         </div>
-
-        {error && (
-          <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-sm font-bold border border-rose-100 animate-pulse">
-            ⚠️ {error}
-          </div>
-        )}
       </div>
 
-      {/* LOGOUT MODAL */}
-      {showLogout && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl border border-white dark:border-slate-800">
-            <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-[2rem] flex items-center justify-center mb-6 mx-auto">
-              <LogOut size={32} />
-            </div>
-            <h3 className="text-2xl font-black mb-2 dark:text-white text-center">
-              Keluar Sistem?
-            </h3>
-            <p className="text-slate-500 dark:text-slate-400 font-medium mb-10 text-center">
-              Sesi Anda akan berakhir.
-            </p>
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => setShowLogout(false)}
-                className="flex-1 py-4 rounded-2xl font-black text-slate-400"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  localStorage.removeItem("user");
-                  localStorage.removeItem("token");
-                  window.location.href = "/login";
-                }}
-                className="flex-1 py-4 bg-slate-900 dark:bg-rose-600 text-white rounded-2xl font-black shadow-xl"
-              >
-                Logout
-              </button>
-            </div>
+      {/* --- MODAL LOGOUT --- */}
+      <AnimatePresence>
+        {showLogout && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] p-12 text-center shadow-3xl border border-slate-200 dark:border-slate-800"
+            >
+              <div className="w-20 h-20 bg-rose-100 text-rose-500 rounded-[2rem] flex items-center justify-center mb-8 mx-auto ring-8 ring-rose-50">
+                <LogOut size={32} />
+              </div>
+              <h3 className="text-3xl font-black dark:text-white tracking-tight">
+                Terminate Session?
+              </h3>
+              <p className="text-slate-500 font-medium mt-3 mb-10 px-4 leading-relaxed">
+                Sesi anda akan segera berakhir. Pastikan semua perubahan data
+                telah disimpan sebelum keluar.
+              </p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setShowLogout(false)}
+                  className="flex-1 py-4 font-black text-slate-400 hover:text-slate-600 transition-colors uppercase text-xs tracking-widest"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.clear();
+                    window.location.href = "/login";
+                  }}
+                  className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black shadow-2xl shadow-rose-500/40 hover:bg-rose-600 transition-all uppercase text-xs tracking-widest"
+                >
+                  Logout
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </AdminLayout>
   );
 }

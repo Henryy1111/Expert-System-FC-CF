@@ -80,13 +80,13 @@ export default function PilihRule() {
           </div>
 
           <div className="relative group min-w-[320px] md:min-w-[450px]">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors w-5 h-5" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
             <input
               type="text"
               placeholder="Cari diagnosa penyakit..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 pr-6 py-5 bg-white dark:bg-gray-800 border-2 border-transparent focus:border-indigo-500 rounded-[2rem] w-full outline-none transition-all shadow-xl shadow-gray-200/50 dark:shadow-none font-bold text-gray-700 dark:text-white"
+              className="pl-12 pr-6 py-4 w-full sm:w-72 bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none text-sm font-medium"
             />
           </div>
         </div>

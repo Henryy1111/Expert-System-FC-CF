@@ -2,26 +2,20 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Trash2,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
   ArrowLeft,
   Search,
   Activity,
-  ChevronRight,
+  Calendar,
+  User,
+  History,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  BarChart3,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import AdminLayout from "../../layouts/AdminLayout";
 import { supabase } from "../../lib/supabaseClient";
-import { Bar } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Tooltip,
-} from "chart.js";
-
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
 export default function KonsultasiIndex() {
   const [konsultasi, setKonsultasi] = useState([]);
@@ -29,19 +23,49 @@ export default function KonsultasiIndex() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [showModal, setShowModal] = useState(false);
+
+  /* ================= TOAST ================= */
   const [toast, setToast] = useState({
     show: false,
     type: "success",
     message: "",
   });
+  const showToast = (type, message) => {
+    setToast({ show: true, type, message });
+    setTimeout(
+      () => setToast({ show: false, type: "success", message: "" }),
+      3000
+    );
+  };
 
+  /* ================= FETCH DATA ================= */
   const fetchKonsultasi = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("konsultasi")
-      .select(`*`)
+      .select(
+        `
+        id_konsultasi,
+        tanggal_konsultasi,
+        cf_total,
+        pengguna (nama_pengguna),
+        penyakit (nama_penyakit)
+      `
+      )
       .order("tanggal_konsultasi", { ascending: false });
-    if (!error) setKonsultasi(data || []);
+
+    if (error) {
+      showToast("error", "Gagal mengambil data histori");
+    } else {
+      const formattedData = data.map((item) => ({
+        id_konsultasi: item.id_konsultasi,
+        tanggal_konsultasi: item.tanggal_konsultasi,
+        cf_total: item.cf_total,
+        nama_pengguna: item.pengguna?.nama_pengguna || "Anonim",
+        nama_penyakit: item.penyakit?.nama_penyakit || "Tidak Terdiagnosa",
+      }));
+      setKonsultasi(formattedData);
+    }
     setLoading(false);
   };
 
@@ -49,9 +73,10 @@ export default function KonsultasiIndex() {
     fetchKonsultasi();
   }, []);
 
-  const showToast = (type, message) => {
-    setToast({ show: true, type, message });
-    setTimeout(() => setToast((prev) => ({ ...prev, show: false })), 3000);
+  /* ================= DELETE HANDLER ================= */
+  const confirmDelete = (id) => {
+    setSelectedId(id);
+    setShowModal(true);
   };
 
   const handleDelete = async () => {
@@ -60,13 +85,15 @@ export default function KonsultasiIndex() {
       .delete()
       .eq("id_konsultasi", selectedId);
     setShowModal(false);
-    if (error) showToast("error", "Gagal menghapus data");
-    else {
-      showToast("success", "Data berhasil dihapus");
+    if (error) {
+      showToast("error", "Gagal menghapus rekaman");
+    } else {
+      showToast("success", "Rekaman konsultasi berhasil dihapus");
       fetchKonsultasi();
     }
   };
 
+  /* ================= FILTER ================= */
   const filteredData = useMemo(() => {
     return konsultasi.filter(
       (item) =>
@@ -77,181 +104,217 @@ export default function KonsultasiIndex() {
 
   return (
     <AdminLayout>
-      {/* MINIMALIST TOAST */}
-      <div
-        className={`fixed top-10 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 ${
-          toast.show
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 -translate-y-4 pointer-events-none"
-        }`}
-      >
-        <div className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-white/10">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              toast.type === "success" ? "bg-emerald-400" : "bg-rose-400"
+      {/* TOAST NOTIFICATION */}
+      <AnimatePresence>
+        {toast.show && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: 20 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            className={`fixed top-6 right-6 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-xl border ${
+              toast.type === "success"
+                ? "bg-emerald-500/90 border-emerald-400 text-white"
+                : "bg-rose-500/90 border-rose-400 text-white"
             }`}
-          />
-          <span className="text-sm font-bold tracking-tight">
-            {toast.message}
-          </span>
-        </div>
-      </div>
+          >
+            {toast.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <XCircle size={20} />
+            )}
+            <span className="font-bold tracking-wide">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* MODERN DELETE MODAL */}
-      {showModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 backdrop-blur-sm bg-black/10">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 w-full max-w-sm shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-gray-100 dark:border-gray-800">
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-              Hapus Rekaman?
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed mb-6">
-              Data konsultasi ini akan dihapus permanen. Tindakan ini tidak
-              dapat dibatalkan.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowModal(false)}
-                className="flex-1 py-3 rounded-xl font-bold text-gray-400 hover:bg-gray-50 transition-all"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 py-3 rounded-xl font-bold bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-80 transition-all"
-              >
-                Hapus
-              </button>
-            </div>
+      {/* MODAL DELETE */}
+      <AnimatePresence>
+        {showModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowModal(false)}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] shadow-2xl p-8 w-full max-w-md text-center"
+            >
+              <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center mb-6 mx-auto">
+                <AlertTriangle size={40} />
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2 italic">
+                Hapus Histori?
+              </h2>
+              <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed font-medium">
+                Data konsultasi ini akan dihapus secara permanen dari server.
+                Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 py-4 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-200 transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 py-4 rounded-2xl bg-rose-600 text-white font-bold hover:bg-rose-700 shadow-lg shadow-rose-500/30 transition-all"
+                >
+                  Hapus
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
-      <div className="max-w-6xl mx-auto px-6 py-12">
-        {/* HEADER AREA */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-16">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <span className="px-3 py-1 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-black uppercase tracking-[0.2em] rounded-full">
-                Konsultasi Records
-              </span>
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* HEADER SECTION */}
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 text-[10px] font-black uppercase tracking-widest border border-indigo-500/20">
+              <History size={12} /> Consultation Logs
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-gray-900 dark:text-white">
-              Data Konsultasi
+            <h1 className="text-4xl md:text-5xl font-black text-slate-800 dark:text-white tracking-tighter">
+              Histori Konsultasi
             </h1>
-            <p className="text-gray-400 mt-2 font-medium">
-              Monitoring hasil diagnosa pasien secara sistematis.
+            <p className="text-slate-500 dark:text-slate-400 font-medium">
+              Data rekam medis hasil diagnosa sistem pakar.
             </p>
           </div>
 
           <div className="relative group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 w-4 h-4 group-focus-within:text-gray-900 transition-colors" />
+            <Search
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors"
+              size={18}
+            />
             <input
               type="text"
               placeholder="Cari pasien atau penyakit..."
-              className="pl-11 pr-6 py-3.5 bg-gray-200 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 rounded-2xl w-full md:w-[320px] focus:bg-slate-200 focus:ring-4 focus:ring-gray-900/5 transition-all outline-none text-sm font-medium"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-12 pr-6 py-4 w-full sm:w-72 bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none text-sm font-medium"
             />
           </div>
         </div>
 
-        {/* CLEAN TABLE SECTION */}
-        <div className="bg-slate-200 dark:bg-gray-800 rounded-[2rem] border border-gray-100 dark:border-gray-800 shadow-[0_8px_30px_rgb(0,0,0,0.02)] overflow-hidden transition-all">
+        {/* TABLE SECTION */}
+        <div className="bg-slate-200 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] overflow-hidden shadow-sm transition-all">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-gray-50 dark:border-gray-800 bg-gray-50/30 dark:bg-gray-800/30">
-                  <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                    Informasi Pasien
+                <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    Pasien
                   </th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                    Diagnosa
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    Hasil Diagnosa
                   </th>
-                  <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                    Kepastian (CF)
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">
+                    Tingkat Keyakinan
                   </th>
-                  <th className="px-8 py-5 text-right text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                  <th className="px-8 py-6 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
                     Aksi
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-sm">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
                 {loading ? (
                   <tr>
                     <td
                       colSpan="4"
-                      className="px-8 py-20 text-center text-gray-400 animate-pulse font-medium"
+                      className="px-8 py-20 text-center text-slate-400 font-bold italic animate-pulse"
                     >
-                      Memuat Data Konsultasi...
+                      Sedang memproses data...
                     </td>
                   </tr>
                 ) : filteredData.length === 0 ? (
                   <tr>
                     <td
                       colSpan="4"
-                      className="px-8 py-20 text-center text-gray-400 font-medium"
+                      className="px-8 py-20 text-center text-slate-400 font-medium"
                     >
-                      Tidak ada data konsultasi ditemukan.
+                      Tidak ada rekaman konsultasi ditemukan.
                     </td>
                   </tr>
                 ) : (
                   filteredData.map((row) => (
-                    <tr
+                    <motion.tr
                       key={row.id_konsultasi}
-                      className="group hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-all group"
                     >
+                      {/* PASIEN */}
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 flex items-center justify-center font-bold text-xs uppercase tracking-tighter">
-                            {row.nama_pengguna.substring(0, 2)}
+                          <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-inner">
+                            <User size={20} />
                           </div>
                           <div>
-                            <p className="font-bold text-gray-900 dark:text-white">
+                            <p className="font-black text-slate-800 dark:text-slate-200 tracking-tight">
                               {row.nama_pengguna}
                             </p>
-                            <p className="text-[11px] text-gray-400 mt-0.5">
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              <Calendar size={10} />
                               {new Date(
                                 row.tanggal_konsultasi
                               ).toLocaleDateString("id-ID", {
-                                day: "numeric",
-                                month: "long",
+                                day: "2-digit",
+                                month: "short",
                                 year: "numeric",
                               })}
-                            </p>
+                            </div>
                           </div>
                         </div>
                       </td>
+
+                      {/* DIAGNOSA */}
                       <td className="px-8 py-6">
-                        <div className="flex items-center gap-2 font-semibold text-gray-700 dark:text-gray-300 italic">
-                          <Activity className="w-3.5 h-3.5 text-gray-400" />
+                        <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-500/5 border border-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-tight">
+                          <Activity size={14} />
                           {row.nama_penyakit}
                         </div>
                       </td>
+
+                      {/* CF TOTAL */}
                       <td className="px-8 py-6">
-                        <div className="flex items-center gap-3">
-                          <span className="font-black text-gray-900 dark:text-white text-base">
-                            {(row.CF_total * 100).toFixed(1)}%
-                          </span>
-                          <div className="w-12 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden hidden sm:block">
-                            <div
-                              className="h-full bg-gray-900 dark:bg-white"
-                              style={{ width: `${row.CF_total * 100}%` }}
-                            ></div>
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="flex items-end gap-1">
+                            <span className="text-xl font-black text-slate-800 dark:text-white italic">
+                              {(row.cf_total * 100).toFixed(1)}
+                            </span>
+                            <span className="text-[10px] font-black text-indigo-500 mb-1">
+                              %
+                            </span>
+                          </div>
+                          <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${row.cf_total * 100}%` }}
+                              className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400"
+                            />
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-6 text-right">
-                        <button
-                          onClick={() => {
-                            setSelectedId(row.id_konsultasi);
-                            setShowModal(true);
-                          }}
-                          className="p-2 text-gray-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+
+                      {/* ACTION */}
+                      <td className="px-8 py-6">
+                        <div className="flex justify-center">
+                          <button
+                            onClick={() => confirmDelete(row.id_konsultasi)}
+                            className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-white hover:bg-rose-500 hover:border-rose-500 hover:shadow-xl hover:shadow-rose-500/20 transition-all active:scale-90"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))
                 )}
               </tbody>
@@ -259,19 +322,21 @@ export default function KonsultasiIndex() {
           </div>
         </div>
 
-        {/* SIMPLE FOOTER */}
-        <div className="mt-12 flex flex-col sm:flex-row items-center justify-between gap-6 border-t border-gray-100 dark:border-gray-800 pt-8">
+        {/* FOOTER */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
           <Link
             to="/dashboard"
-            className="flex items-center gap-3 text-gray-500 hover:text-indigo-600 font-bold transition-colors group"
+            className="flex items-center gap-2 text-slate-400 hover:text-slate-800 dark:hover:text-white font-bold transition-all text-sm group"
           >
-            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-            Kembali ke Dashboard
+            <ArrowLeft
+              size={18}
+              className="group-hover:-translate-x-1 transition-transform"
+            />
+            Dashboard
           </Link>
-          <div className="flex items-center gap-6">
-            <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              {filteredData.length} Total Data
+          <div className="flex items-center gap-3">
+            <div className="px-4 py-2 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+              <BarChart3 size={12} /> {filteredData.length} Total Rekaman
             </div>
           </div>
         </div>
