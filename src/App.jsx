@@ -14,7 +14,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import Konsultasi from "./pages/Konsultasi"; // Import halaman baru untuk user
+import Konsultasi from "./pages/Konsultasi"; // Halaman Form untuk User
 
 /* ================= PENYAKIT ================= */
 import PenyakitIndex from "./pages/penyakit/PenyakitIndex";
@@ -47,8 +47,8 @@ import PenggunaIndex from "./pages/pengguna/PenggunaIndex";
 import PenggunaCreate from "./pages/pengguna/PenggunaCreate";
 import PenggunaEdit from "./pages/pengguna/PenggunaEdit";
 
-/* ================= KONSULTASI (ADMIN MANAGEMENT) ================= */
-import KonsultasiIndex from "./pages/konsultasi/KonsultasiIndex";
+/* ================= KONSULTASI (MANAGEMENT) ================= */
+import KonsultasiIndex from "./pages/konsultasi/KonsultasiIndex"; // Tabel untuk Admin/Dokter
 import DetailKonsultasiIndex from "./pages/detailkonsultasi/DetailKonsultasiIndex";
 
 export default function App() {
@@ -98,12 +98,15 @@ export default function App() {
           }
         />
 
-        {/* ================= FITUR KONSULTASI (USER) ================= */}
+        {/* ================= FITUR KONSULTASI (KONDISIONAL ROLE) ================= */}
         <Route
           path="/konsultasi"
           element={
             <ProtectedRoute allow={["admin", "dokter", "user"]}>
-              <Konsultasi />
+              {/* Jika role adalah user, arahkan ke halaman Form Diagnosa.
+                  Jika role adalah admin/dokter, arahkan ke halaman Tabel Laporan.
+              */}
+              {role === "user" ? <Konsultasi /> : <KonsultasiIndex />}
             </ProtectedRoute>
           }
         />
@@ -272,15 +275,7 @@ export default function App() {
           }
         />
 
-        {/* ================= DATA LAPORAN KONSULTASI (ADMIN/DOKTER) ================= */}
-        <Route
-          path="/data-konsultasi"
-          element={
-            <ProtectedRoute allow={["admin", "dokter"]}>
-              <KonsultasiIndex />
-            </ProtectedRoute>
-          }
-        />
+        {/* ================= DETAIL KONSULTASI (ADMIN/DOKTER) ================= */}
         <Route
           path="/detailkonsultasi"
           element={

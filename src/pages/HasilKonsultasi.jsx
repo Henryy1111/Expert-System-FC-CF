@@ -1,319 +1,198 @@
-import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient"; // Sesuaikan path lib kamu
-import { motion, AnimatePresence } from "framer-motion";
+import React from "react";
+import { motion } from "framer-motion";
 import {
   ChevronLeft,
-  Send,
-  Loader2,
-  ClipboardCheck,
-  Sparkles,
+  Download,
+  AlertCircle,
+  Stethoscope,
+  Activity,
+  Pill,
+  FileText,
+  ArrowRight,
 } from "lucide-react";
 
-// Import Komponen Hasil
-import HasilKonsultasi from "./HasilKonsultasi";
+const rekomendasiObat = {
+  Maag: "Obat Mylanta Sirup, Promag, Polysilane. Hindari makanan pedas, jangan langsung tiduran setelah makan, dan minum jahe hangat.",
+  Gastritis:
+    "Antasida seperti Promag atau Mylanta, Famotidine. Kurangi alkohol, hindari pedas, dan jangan telat makan.",
+  Dispepsia:
+    "Prokinetik, Antasida, Omeprazole. Jaga pola makan dan hindari stres berlebihan.",
+  "Dispepsia Fungsional":
+    "Mylanta, Tagamet HB, Pepcid AC. Hindari kopi dan makanan pedas.",
+  Gastroparesis:
+    "Metoclopramide, Domperidone. Hindari soda dan konsumsi makanan lembut.",
+  GERD: "Omeprazole, Polysilane. Hindari makanan asam & pedas, jangan telat makan.",
+  Gastroenteritis: "Obat antidiare. Perbanyak cairan dan istirahat.",
+  "Kanker Lambung":
+    "Kemoterapi sesuai anjuran dokter. Jaga pola makan dan kontrol rutin.",
+  "Tukak Lambung":
+    "PPI seperti Omeprazole dan antibiotik jika diperlukan. Hindari makan larut malam.",
+  "Tumor Lambung": "Penanganan medis lanjutan dan operasi bila diperlukan.",
+};
 
-const Konsultasi = () => {
-  // --- States ---
-  const [gejala, setGejala] = useState([]);
-  const [jawabanOptions, setJawabanOptions] = useState([]);
-  const [jawabanUser, setJawabanUser] = useState({}); // Simpan { id_gejala: nilai_cf }
-  const [loading, setLoading] = useState(true);
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [hasilDiagnosa, setHasilDiagnosa] = useState(null);
-  const [user, setUser] = useState(null);
+const HasilKonsultasi = ({ dataHasil, onBack }) => {
+  const { diagnosaUtama, hasilSemua, gejalaDipilih } = dataHasil;
 
-  // --- Load Initial Data ---
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Ambil User Session
-        const {
-          data: { user: authUser },
-        } = await supabase.auth.getUser();
-        setUser(authUser);
+  const saran =
+    rekomendasiObat[diagnosaUtama.nama_penyakit] ||
+    "Segera konsultasikan dengan tenaga medis ahli untuk penanganan lebih lanjut.";
 
-        // Ambil Data Gejala
-        const { data: dataGejala, error: errG } = await supabase
-          .from("gejala")
-          .select("*")
-          .order("id_gejala", { ascending: true });
-
-        // Ambil Data Opsi Jawaban (Bobot CF)
-        const { data: dataBobot, error: errB } = await supabase
-          .from("bobotcf")
-          .select("*")
-          .order("nilaicf", { ascending: true });
-
-        if (errG || errB) throw errG || errB;
-
-        setGejala(dataGejala);
-        setJawabanOptions(dataBobot);
-      } catch (error) {
-        console.error("Error Fetching:", error.message);
-      } finally {
-        setTimeout(() => setLoading(false), 800);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  // --- Handlers ---
-  const handleSelectJawaban = (idGejala, nilai) => {
-    setJawabanUser((prev) => ({ ...prev, [idGejala]: nilai }));
+  // Animasi Variabel
+  const containerVars = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
   };
 
-  const hitungCertaintyFactor = async () => {
-    setIsCalculating(true);
-    try {
-      // 1. Ambil Knowledge Base / Rules
-      const { data: rules, error: errR } = await supabase
-        .from("detail_rule")
-        .select("*, penyakit(nama_penyakit)");
-
-      if (errR) throw errR;
-
-      // 2. Kelompokkan & Hitung CF per Penyakit
-      const groupPenyakit = {};
-
-      rules.forEach((rule) => {
-        const id_p = rule.id_penyakit;
-        const cf_pakar = rule.nilaicf_pakar;
-        const cf_user = jawabanUser[rule.id_gejala] || 0;
-
-        // E x H (Evidence * Hypothesis)
-        const cf_hasil = cf_pakar * cf_user;
-
-        if (cf_hasil > 0) {
-          if (!groupPenyakit[id_p]) {
-            groupPenyakit[id_p] = {
-              id_penyakit: id_p,
-              nama_penyakit: rule.penyakit.nama_penyakit,
-              cf_list: [],
-            };
-          }
-          groupPenyakit[id_p].cf_list.push(cf_hasil);
-        }
-      });
-
-      // 3. Gabungkan CF (Combine) menggunakan rumus: CFc = CF1 + CF2 * (1 - CF1)
-      const listHasilPenyakit = Object.values(groupPenyakit).map((p) => {
-        let cf_combine = 0;
-        if (p.cf_list.length > 0) {
-          cf_combine = p.cf_list[0];
-          for (let i = 1; i < p.cf_list.length; i++) {
-            cf_combine = cf_combine + p.cf_list[i] * (1 - cf_combine);
-          }
-        }
-        return {
-          id_penyakit: p.id_penyakit,
-          nama_penyakit: p.nama_penyakit,
-          cf: cf_combine * 100, // Ubah ke persen
-        };
-      });
-
-      // 4. Sortir dari yang tertinggi
-      const sortedHasil = listHasilPenyakit.sort((a, b) => b.cf - a.cf);
-
-      // 5. Data Gejala yang dipilih (untuk laporan)
-      const gejalaTerpilih = gejala
-        .filter((g) => jawabanUser[g.id_gejala] > 0)
-        .map((g) => ({
-          id_gejala: g.id_gejala,
-          deskripsi: g.nama_gejala || g.deskripsi_gejala,
-          nilaiCF: jawabanUser[g.id_gejala],
-        }));
-
-      // 6. Set ke State Hasil
-      setHasilDiagnosa({
-        diagnosaUtama: sortedHasil[0] || {
-          nama_penyakit: "Tidak Terdeteksi",
-          cf: 0,
-        },
-        hasilSemua: sortedHasil,
-        gejalaDipilih: gejalaTerpilih,
-      });
-    } catch (error) {
-      alert("Proses Gagal: " + error.message);
-    } finally {
-      setIsCalculating(false);
-    }
+  const itemVars = {
+    hidden: { y: 20, opacity: 0 },
+    visible: { y: 0, opacity: 1 },
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Validasi: pastikan semua pertanyaan dijawab
-    if (Object.keys(jawabanUser).length < gejala.length) {
-      alert("Mohon lengkapi semua jawaban agar diagnosa akurat.");
-      return;
-    }
-    hitungCertaintyFactor();
-  };
-
-  // --- Render Logic ---
-
-  // Loading Screen
-  if (loading || isCalculating) {
-    return (
-      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-600/20 blur-[120px] rounded-full" />
-        <Loader2
-          className="animate-spin text-blue-500 relative z-10"
-          size={48}
-        />
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-slate-400 mt-4 font-medium tracking-widest uppercase text-xs z-10"
-        >
-          {isCalculating
-            ? "Mengkalkulasi Probabilitas..."
-            : "Menganalisa Data Medis"}
-        </motion.p>
-      </div>
-    );
-  }
-
-  // Tampilan Hasil
-  if (hasilDiagnosa) {
-    return (
-      <HasilKonsultasi
-        dataHasil={hasilDiagnosa}
-        onBack={() => setHasilDiagnosa(null)}
-        idPengguna={user?.id}
-      />
-    );
-  }
-
-  // Tampilan Form Konsultasi
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-blue-500/30">
+    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-emerald-500/30">
+      {/* Background Decor */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[150px] rounded-full" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-600/10 blur-[150px] rounded-full" />
+        <div className="absolute top-[20%] right-[-10%] w-[50%] h-[50%] bg-emerald-900/10 rounded-full blur-[120px]"></div>
+        <div className="absolute bottom-[10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 rounded-full blur-[120px]"></div>
       </div>
 
-      <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-8 pb-24 pt-24 md:pt-32">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-12 text-center md:text-left border-b border-white/5 pb-8"
+      <div className="relative max-w-6xl mx-auto px-6 py-12">
+        {/* Navigation */}
+        <button
+          onClick={onBack}
+          className="group flex items-center gap-2 text-slate-400 hover:text-white mb-8 transition-colors"
         >
-          <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
-            <div className="p-2 bg-blue-600/20 rounded-lg">
-              <ClipboardCheck className="text-blue-500" size={24} />
-            </div>
-            <span className="text-blue-500 font-bold tracking-widest uppercase text-sm">
-              Medical Expert System
-            </span>
+          <div className="p-2 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors">
+            <ChevronLeft size={20} />
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight mb-4">
-            Mulai{" "}
-            <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-              Diagnosa Mandiri
-            </span>
-          </h1>
-          <p className="text-slate-400 text-lg max-w-2xl leading-relaxed">
-            Berikan informasi akurat mengenai kondisi Anda. Sistem kami akan
-            menganalisa gejala menggunakan metode Certainty Factor.
-          </p>
-        </motion.div>
+          <span className="font-medium">Kembali ke Dashboard</span>
+        </button>
 
-        {/* Form Pertanyaan */}
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {gejala.map((g, index) => (
+        <motion.div
+          variants={containerVars}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+        >
+          {/* LEFT COLUMN: MAIN DIAGNOSIS */}
+          <div className="lg:col-span-7 space-y-6">
             <motion.div
-              key={g.id_gejala}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="group relative"
+              variants={itemVars}
+              className="relative overflow-hidden p-8 rounded-[2.5rem] bg-gradient-to-br from-emerald-600/20 to-emerald-900/10 border border-emerald-500/20 shadow-2xl"
             >
-              <div className="bg-slate-900/40 backdrop-blur-xl border border-white/10 p-6 md:p-10 rounded-[2.5rem] hover:border-blue-500/30 transition-all duration-500 shadow-2xl">
-                <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex-shrink-0">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                      {index + 1}
-                    </div>
+              <div className="absolute top-0 right-0 p-6 opacity-10">
+                <Stethoscope size={120} />
+              </div>
+
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-6">
+                  <Activity size={14} /> Analysis Complete
+                </div>
+
+                <h1 className="text-sm font-medium text-emerald-400/80 mb-1">
+                  Hasil Diagnosa Utama:
+                </h1>
+                <h2 className="text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
+                  {diagnosaUtama.nama_penyakit}
+                </h2>
+
+                <div className="flex items-end gap-4">
+                  <div className="text-6xl font-black text-white italic tracking-tighter">
+                    {diagnosaUtama.cf.toFixed(1)}
+                    <span className="text-2xl text-emerald-500/60">%</span>
                   </div>
-
-                  <div className="flex-1">
-                    <label className="text-xl md:text-2xl font-semibold text-slate-100 leading-snug mb-8 block">
-                      Apakah Anda merasakan{" "}
-                      <span className="text-blue-400 italic">
-                        "{g.nama_gejala || g.deskripsi_gejala}"
-                      </span>
-                      ?
-                    </label>
-
-                    {/* Opsi Jawaban */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                      {jawabanOptions.map((opt) => {
-                        const isActive =
-                          jawabanUser[g.id_gejala] === opt.nilaicf;
-                        return (
-                          <motion.button
-                            key={opt.id}
-                            type="button"
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() =>
-                              handleSelectJawaban(g.id_gejala, opt.nilaicf)
-                            }
-                            className={`relative overflow-hidden py-4 px-2 rounded-2xl text-[10px] md:text-[11px] font-black uppercase tracking-wider transition-all duration-300 border ${
-                              isActive
-                                ? "bg-blue-600 border-blue-400 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)]"
-                                : "bg-white/5 border-white/5 text-slate-500 hover:bg-white/10"
-                            }`}
-                          >
-                            {isActive && (
-                              <Sparkles
-                                size={10}
-                                className="absolute top-1 right-1 text-blue-200"
-                              />
-                            )}
-                            {opt.bobotcf}
-                          </motion.button>
-                        );
-                      })}
-                    </div>
+                  <div className="mb-2 text-slate-400 text-sm font-medium">
+                    Tingkat Keyakinan (Certainty Factor)
                   </div>
                 </div>
               </div>
             </motion.div>
-          ))}
 
-          {/* Footer Actions */}
-          <motion.div className="flex flex-col md:flex-row justify-between items-center gap-6 pt-12 border-t border-white/5">
-            <Link
-              to="/home"
-              className="flex items-center gap-3 text-slate-500 hover:text-white transition-all group font-medium"
+            <motion.div
+              variants={itemVars}
+              className="p-8 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-md"
             >
-              <div className="p-2 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors">
-                <ChevronLeft size={20} />
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+                  <Pill className="text-blue-400" size={24} />
+                </div>
+                <h3 className="text-xl font-bold text-white">
+                  Rekomendasi Medis
+                </h3>
               </div>
-              Kembali ke Beranda
-            </Link>
+              <p className="text-slate-300 leading-relaxed text-lg">{saran}</p>
+              <div className="mt-6 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 flex gap-4">
+                <AlertCircle className="text-amber-500 shrink-0" size={20} />
+                <p className="text-xs text-amber-500/80 leading-snug">
+                  Peringatan: Hasil ini bersifat analitik sistem berdasarkan
+                  data yang Anda masukkan. Tetap konsultasikan ke dokter untuk
+                  validasi klinis saat kondisi kronis.
+                </p>
+              </div>
+            </motion.div>
+          </div>
 
-            <button
-              type="submit"
-              className="group relative w-full md:w-auto overflow-hidden px-12 py-5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-3xl shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3"
+          {/* RIGHT COLUMN: LISTS */}
+          <div className="lg:col-span-5 space-y-6">
+            {/* OTHER POSSIBILITIES */}
+            <motion.div
+              variants={itemVars}
+              className="p-6 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-md"
             >
-              <span className="relative uppercase tracking-widest text-sm">
-                Analisa Hasil Sekarang
-              </span>
-              <Send
-                size={18}
-                className="relative group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform"
-              />
-            </button>
-          </motion.div>
-        </form>
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <FileText size={18} className="text-blue-400" /> Kemungkinan
+                Lain
+              </h3>
+              <div className="space-y-3">
+                {hasilSemua.slice(1, 4).map((h, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5 group hover:bg-white/5 transition-colors"
+                  >
+                    <span className="text-slate-300 font-medium">
+                      {h.nama_penyakit}
+                    </span>
+                    <span className="text-sm font-bold text-slate-500 group-hover:text-blue-400 transition-colors">
+                      {h.cf.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* SYMPTOMS SUMMARY */}
+            <motion.div
+              variants={itemVars}
+              className="p-6 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-md"
+            >
+              <h3 className="text-lg font-bold text-white mb-4">
+                Gejala yang Terdeteksi
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {gejalaDipilih.map((g, i) => (
+                  <div
+                    key={i}
+                    className="px-3 py-2 rounded-xl bg-slate-800/50 border border-white/5 text-[11px] font-medium text-slate-400 flex items-center gap-2"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                    {g.deskripsi}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* ACTION BUTTON */}
+            <motion.div variants={itemVars} className="grid grid-cols-1 gap-4">
+              <button className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl bg-white text-slate-950 font-bold hover:bg-blue-400 transition-all hover:scale-[1.02] active:scale-95">
+                <Download size={20} />
+                Simpan Hasil Diagnosis
+              </button>
+            </motion.div>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
 };
 
-export default Konsultasi;
+export default HasilKonsultasi;

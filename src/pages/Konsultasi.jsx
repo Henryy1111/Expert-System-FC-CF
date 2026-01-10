@@ -1,35 +1,47 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
-  Send,
   Loader2,
   ClipboardCheck,
   Sparkles,
+  CheckCircle2,
 } from "lucide-react";
-
-// 1. IMPORT KOMPONEN HASIL
 import HasilKonsultasi from "./HasilKonsultasi";
 
+const AMBANG_CF = 0.4;
+
 const Konsultasi = () => {
+  const navigate = useNavigate();
   const [gejala, setGejala] = useState([]);
   const [jawabanOptions, setJawabanOptions] = useState([]);
   const [jawabanUser, setJawabanUser] = useState({});
   const [loading, setLoading] = useState(true);
-
-  // --- STATE UNTUK HASIL ---
   const [hasilDiagnosa, setHasilDiagnosa] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
+
+  // Ambil data user dari localStorage (asumsi login manual menyimpan data di sini)
+  // Jika Anda menyimpan data login dengan nama lain, silakan ganti 'user'
+  const userSession = JSON.parse(localStorage.getItem("user"));
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // 1. Cek Sesi (Manual Check)
+        if (!userSession) {
+          alert("Silakan login terlebih dahulu.");
+          navigate("/login");
+          return;
+        }
+
+        // 2. Load Data Gejala & Bobot
         const { data: dataGejala } = await supabase
           .from("gejala")
           .select("*")
-          .order("id_gejala", { ascending: true });
+          .order("id_gejala");
+
         const { data: dataBobot } = await supabase
           .from("bobotcf")
           .select("*")
@@ -38,75 +50,137 @@ const Konsultasi = () => {
         setGejala(dataGejala || []);
         setJawabanOptions(dataBobot || []);
       } catch (error) {
-        console.error("Error fetching data:", error.message);
+        console.error("Error fetching data:", error);
       } finally {
-        setTimeout(() => setLoading(false), 800);
+        setLoading(false);
       }
     };
+
     fetchData();
-  }, []);
+  }, [navigate, userSession]);
 
   const handleSelectJawaban = (idGejala, nilai) => {
-    setJawabanUser({ ...jawabanUser, [idGejala]: nilai });
+    setJawabanUser((prev) => ({ ...prev, [idGejala]: nilai }));
   };
 
-  // --- LOGIKA HITUNG CERTAINTY FACTOR ---
   const hitungCF = async () => {
     setIsCalculating(true);
     try {
-      // Ambil data rule dari database
-      const { data: rules } = await supabase
+      // 1. Ambil Data Master Database
+      const { data: dataRules } = await supabase.from("rule").select("*");
+      const { data: dataDetailRules } = await supabase
         .from("detail_rule")
-        .select("*, penyakit(nama_penyakit)");
+        .select("*");
+      const { data: dataPenyakit } = await supabase
+        .from("penyakit")
+        .select("*");
+      const { data: dataBobotMaster } = await supabase
+        .from("bobotcf")
+        .select("*");
 
-      const skorPenyakit = {};
+      const bobotMap = Object.fromEntries(
+        dataBobotMaster.map((b) => [b.id_bobotcf, b.nilaicf || b.nilaiCF])
+      );
 
-      rules.forEach((rule) => {
-        const cf_pakar = rule.nilaicf_pakar;
-        const cf_user = jawabanUser[rule.id_gejala] || 0;
-        const cf_hasil = cf_pakar * cf_user;
+      // 2. Filter Jawaban User
+      const fakta = {};
+      Object.entries(jawabanUser).forEach(([id, nilai]) => {
+        const val = parseFloat(nilai);
+        if (val >= AMBANG_CF) fakta[id] = val;
+      });
 
-        if (cf_hasil > 0) {
-          if (!skorPenyakit[rule.id_penyakit]) {
-            skorPenyakit[rule.id_penyakit] = {
-              id_penyakit: rule.id_penyakit,
-              nama_penyakit: rule.penyakit.nama_penyakit,
-              cf_list: [],
-            };
+      if (Object.keys(fakta).length === 0) {
+        alert("Pilih gejala dengan tingkat keyakinan minimal 'Sedikit Yakin'.");
+        setIsCalculating(false);
+        return;
+      }
+
+      // 3. Algoritma Certainty Factor
+      const cf_hasil_per_penyakit = {};
+      dataRules.forEach((rule) => {
+        const details = dataDetailRules.filter(
+          (d) => d.id_rule === rule.id_rule
+        );
+        let cf_array = [];
+        details.forEach((detail) => {
+          const cf_pakar = parseFloat(bobotMap[detail.id_bobotcf] || 0);
+          if (fakta[detail.id_gejala]) {
+            cf_array.push(fakta[detail.id_gejala] * cf_pakar);
           }
-          skorPenyakit[rule.id_penyakit].cf_list.push(cf_hasil);
+        });
+
+        if (cf_array.length > 0) {
+          let cf_final = cf_array[0];
+          for (let i = 1; i < cf_array.length; i++) {
+            cf_final = cf_final + cf_array[i] * (1 - cf_final);
+          }
+          cf_hasil_per_penyakit[rule.id_penyakit] = Math.max(
+            cf_hasil_per_penyakit[rule.id_penyakit] || 0,
+            cf_final
+          );
         }
       });
 
-      // Gabungkan CF: CFcombine = CFold + CFnew * (1 - CFold)
-      const finalResult = Object.values(skorPenyakit)
-        .map((p) => {
-          let cf_combine = p.cf_list[0];
-          for (let i = 1; i < p.cf_list.length; i++) {
-            cf_combine = cf_combine + p.cf_list[i] * (1 - cf_combine);
-          }
-          return {
-            id_penyakit: p.id_penyakit,
-            nama_penyakit: p.nama_penyakit,
-            cf: cf_combine * 100,
-          };
-        })
+      // 4. Urutkan Hasil
+      const hasilSemua = dataPenyakit
+        .map((p) => ({
+          id_penyakit: p.id_penyakit,
+          nama_penyakit: p.nama_penyakit,
+          cf: Number(
+            ((cf_hasil_per_penyakit[p.id_penyakit] || 0) * 100).toFixed(2)
+          ),
+        }))
         .sort((a, b) => b.cf - a.cf);
 
-      // Siapkan data untuk dikirim ke komponen hasil
+      // 5. PROSES SIMPAN (MENGGUNAKAN ID DARI LOCALSTORAGE)
+      // Karena Hendrik (ID 6) sudah login, kita ambil ID-nya langsung dari session
+      if (!userSession || !userSession.id_pengguna) {
+        throw new Error("ID Pengguna tidak ditemukan. Silakan login ulang.");
+      }
+
+      const currentUserId = userSession.id_pengguna; // Otomatis angka 6 jika Hendrik
+      const diagnosaUtama = hasilSemua[0];
+
+      // A. Simpan ke Tabel Konsultasi
+      const { data: insertedKonsul, error: errorK } = await supabase
+        .from("konsultasi")
+        .insert([
+          {
+            id_pengguna: currentUserId,
+            id_penyakit: diagnosaUtama.id_penyakit,
+            tanggal_konsultasi: new Date().toISOString(),
+            cf_total: diagnosaUtama.cf / 100,
+          },
+        ])
+        .select();
+
+      if (errorK) throw new Error("Gagal simpan konsultasi: " + errorK.message);
+
+      // B. Simpan ke Tabel Detail Konsultasi
+      const idKonsulBaru = insertedKonsul[0].id_konsultasi;
+      const detailInserts = Object.entries(jawabanUser).map(([idG, nilai]) => ({
+        id_konsultasi: idKonsulBaru,
+        id_gejala: idG,
+        nilaicf_pengguna: parseFloat(nilai),
+      }));
+
+      await supabase.from("detail_konsultasi").insert(detailInserts);
+
+      // 6. Tampilkan Hasil Ke Layar
       setHasilDiagnosa({
-        diagnosaUtama: finalResult[0],
-        hasilSemua: finalResult,
+        diagnosaUtama,
+        hasilSemua,
         gejalaDipilih: gejala
-          .filter((g) => jawabanUser[g.id_gejala] > 0)
+          .filter((g) => jawabanUser[g.id_gejala])
           .map((g) => ({
             id_gejala: g.id_gejala,
             deskripsi: g.deskripsi_gejala,
-            nilaiCF: jawabanUser[g.id_gejala],
+            nilaicf: jawabanUser[g.id_gejala],
           })),
       });
-    } catch (error) {
-      alert("Terjadi kesalahan hitung: " + error.message);
+    } catch (err) {
+      console.error("Error Detail:", err);
+      alert("Proses Gagal: " + err.message);
     } finally {
       setIsCalculating(false);
     }
@@ -114,152 +188,114 @@ const Konsultasi = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (Object.keys(jawabanUser).length < gejala.length) {
-      alert("Mohon lengkapi semua jawaban agar diagnosa akurat.");
+    if (Object.keys(jawabanUser).length !== gejala.length) {
+      alert("Mohon lengkapi semua pertanyaan gejala.");
       return;
     }
     hitungCF();
   };
 
-  // --- LOGIC TAMPILAN ---
-
-  // 1. Jika sedang loading awal atau sedang menghitung
   if (loading || isCalculating) {
     return (
-      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-600/20 blur-[120px] rounded-full" />
-        <Loader2
-          className="animate-spin text-blue-500 relative z-10"
-          size={48}
-        />
-        <p className="text-slate-400 mt-4 font-medium tracking-widest uppercase text-xs z-10">
-          {isCalculating
-            ? "Mengkalkulasi Probabilitas..."
-            : "Menganalisa Data Medis"}
-        </p>
+      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center space-y-6">
+        <Loader2 className="animate-spin text-blue-500" size={64} />
+        <h2 className="text-xl font-bold text-white uppercase tracking-wider">
+          {isCalculating ? "Menghitung & Menyimpan..." : "Memuat Data..."}
+        </h2>
       </div>
     );
   }
 
-  // 2. Jika diagnosa sudah selesai, tampilkan komponen HASIL
   if (hasilDiagnosa) {
-    const savedUser = JSON.parse(localStorage.getItem("user"));
     return (
       <HasilKonsultasi
         dataHasil={hasilDiagnosa}
         onBack={() => setHasilDiagnosa(null)}
-        idPengguna={savedUser?.id}
       />
     );
   }
 
-  // 3. Tampilan Form Utama (Tampilan Default)
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-blue-500/30">
-      {/* Background Decor */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[150px] rounded-full" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-600/10 blur-[150px] rounded-full" />
-      </div>
-
-      <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-8 pb-24 pt-24 md:pt-32">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-12 text-center md:text-left border-b border-white/5 pb-8"
-        >
-          <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
-            <div className="p-2 bg-blue-600/20 rounded-lg">
-              <ClipboardCheck className="text-blue-500" size={24} />
-            </div>
-            <span className="text-blue-500 font-bold tracking-widest uppercase text-sm">
-              Medical Expert System
-            </span>
+    <div className="min-h-screen bg-[#020617] text-slate-200">
+      <div className="relative max-w-4xl mx-auto px-6 py-12">
+        {/* Konten UI tetap sama */}
+        <header className="mb-12">
+          <Link
+            to="/home"
+            className="inline-flex items-center text-slate-400 hover:text-blue-400 gap-2 mb-4"
+          >
+            <ChevronLeft size={20} /> Kembali ke Home
+          </Link>
+          <div className="flex items-center gap-3">
+            <ClipboardCheck className="text-blue-400" size={32} />
+            <h1 className="text-3xl font-extrabold text-white">
+              Form Konsultasi
+            </h1>
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight mb-4">
-            Mulai{" "}
-            <span className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-              Diagnosa Mandiri
-            </span>
-          </h1>
-          <p className="text-slate-400 text-lg max-w-2xl leading-relaxed">
-            Berikan informasi yang akurat mengenai kondisi Anda.
-          </p>
-        </motion.div>
+        </header>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {gejala.map((g, index) => (
-            <motion.div
-              key={g.id_gejala}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="group relative"
-            >
-              <div className="bg-slate-900/40 backdrop-blur-xl border border-white/10 p-6 md:p-10 rounded-[2.5rem] hover:border-blue-500/30 transition-all duration-500 shadow-2xl">
-                <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex-shrink-0">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                      {index + 1}
-                    </div>
-                  </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <AnimatePresence>
+            {gejala.map((g, i) => (
+              <motion.div
+                key={g.id_gejala}
+                className="p-8 bg-white/[0.03] border border-white/[0.05] rounded-3xl"
+              >
+                <div className="flex flex-col md:flex-row md:items-center gap-6">
                   <div className="flex-1">
-                    <label className="text-xl md:text-2xl font-semibold text-slate-100 leading-snug mb-8 block">
-                      Apakah Anda merasakan{" "}
-                      <span className="text-blue-400 italic">
-                        "{g.nama_gejala}"
+                    <span className="text-xs font-bold text-blue-500 uppercase">
+                      Gejala {i + 1}
+                    </span>
+                    <h3 className="text-lg font-medium text-slate-200 mt-2">
+                      Apakah Anda mengalami{" "}
+                      <span className="text-blue-400">
+                        "{g.deskripsi_gejala}"
                       </span>
                       ?
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                      {jawabanOptions.map((opt) => {
-                        const isActive =
-                          jawabanUser[g.id_gejala] === opt.nilaicf;
-                        return (
-                          <motion.button
-                            key={opt.id}
-                            type="button"
-                            onClick={() =>
-                              handleSelectJawaban(g.id_gejala, opt.nilaicf)
-                            }
-                            className={`relative py-4 px-2 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                              isActive
-                                ? "bg-blue-600 border-blue-400 text-white shadow-lg"
-                                : "bg-white/5 border-white/5 text-slate-500 hover:bg-white/10"
-                            }`}
-                          >
-                            {isActive && (
-                              <Sparkles
-                                size={10}
-                                className="absolute top-1 right-1 text-blue-200"
-                              />
-                            )}
-                            {opt.bobotcf}
-                          </motion.button>
-                        );
-                      })}
-                    </div>
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {jawabanOptions.map((opt) => (
+                      <button
+                        key={opt.id_bobotcf}
+                        type="button"
+                        onClick={() =>
+                          handleSelectJawaban(g.id_gejala, opt.nilaicf)
+                        }
+                        className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                          jawabanUser[g.id_gejala] === opt.nilaicf
+                            ? "bg-blue-600 border-blue-400 text-white"
+                            : "bg-white/5 border-white/10 text-slate-400"
+                        }`}
+                      >
+                        {opt.nilaicf === 1
+                          ? "Sangat Yakin"
+                          : opt.nilaicf === 0.8
+                          ? "Yakin"
+                          : opt.nilaicf === 0.6
+                          ? "Cukup Yakin"
+                          : opt.nilaicf === 0.4
+                          ? "Sedikit Yakin"
+                          : opt.nilaicf === 0.2
+                          ? "Mungkin"
+                          : "Tidak"}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
-
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6 pt-12 border-t border-white/5">
-            <Link
-              to="/home"
-              className="flex items-center gap-3 text-slate-500 hover:text-white transition-all font-medium"
-            >
-              <ChevronLeft size={20} /> Kembali ke Beranda
-            </Link>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <div className="sticky bottom-8 p-6 bg-slate-900 border border-white/10 rounded-3xl flex items-center justify-between shadow-2xl backdrop-blur-md">
+            <p className="text-sm text-slate-400">
+              Terjawab {Object.keys(jawabanUser).length} dari {gejala.length}
+            </p>
             <button
               type="submit"
-              className="px-12 py-5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-3xl shadow-2xl transition-all flex items-center gap-3"
+              disabled={Object.keys(jawabanUser).length !== gejala.length}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2"
             >
-              <span className="uppercase tracking-widest text-sm">
-                Analisa Hasil Sekarang
-              </span>
-              <Send size={18} />
+              <Sparkles size={18} /> Kirim Diagnosa
             </button>
           </div>
         </form>
